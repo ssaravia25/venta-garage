@@ -5,7 +5,8 @@ import {
   Package, Sparkles, AlertCircle, ChevronLeft, ChevronRight,
   Star, ArrowUp, ArrowDown, Image as ImageIcon, Images
 } from 'lucide-react';
-import { storageGet, storageSet, isConfigured } from './storage.js';
+import { storageGet, storageSet } from './storage.js';
+import { initialConfig, initialItems } from './initialData.js';
 
 /* ============================================================
    STORAGE HELPERS
@@ -44,43 +45,6 @@ const DEFAULT_CATEGORIES = ['Muebles', 'Electrónica', 'Cocina', 'Ropa', 'Libros
 const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Sans:wght@400;500;600;700&display=swap');`;
 
 /* ============================================================
-   BANNER: BACKEND PENDIENTE DE CONFIGURAR
-   ============================================================ */
-function PendingSetupBanner() {
-  return (
-    <div style={{ fontFamily: 'DM Sans, sans-serif', backgroundColor: '#F5EFE4' }} className="min-h-screen flex items-center justify-center p-6">
-      <style>{`${FONT_IMPORT} .serif{font-family:'Fraunces',serif;}`}</style>
-      <div className="max-w-lg w-full text-center">
-        <div className="w-16 h-16 rounded-2xl bg-orange-100 flex items-center justify-center mx-auto mb-6">
-          <Settings className="w-8 h-8 text-orange-700" />
-        </div>
-        <h1 className="serif text-3xl text-stone-900 mb-3">Backend pendiente</h1>
-        <p className="text-stone-600 mb-6 leading-relaxed">
-          La app está desplegada pero necesita conectarse a Supabase para guardar datos.
-          Añade las variables de entorno en Vercel y haz un redeploy.
-        </p>
-        <div className="bg-stone-900 text-stone-100 rounded-xl p-5 text-left text-sm font-mono space-y-1.5 mb-6">
-          <p className="text-stone-400 text-xs uppercase tracking-wider mb-3">Vercel → Settings → Environment Variables</p>
-          <p><span className="text-orange-400">VITE_SUPABASE_URL</span>=https://xxxx.supabase.co</p>
-          <p><span className="text-orange-400">VITE_SUPABASE_ANON_KEY</span>=eyJ...</p>
-        </div>
-        <div className="bg-white border border-stone-200 rounded-xl p-5 text-left text-sm space-y-2">
-          <p className="font-semibold text-stone-800 mb-3">SQL a ejecutar en Supabase → SQL Editor:</p>
-          <pre className="text-stone-600 text-xs overflow-x-auto">{`CREATE TABLE kv_store (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE kv_store ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "public_rw" ON kv_store
-  FOR ALL USING (true) WITH CHECK (true);`}</pre>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
    APP RAÍZ
    ============================================================ */
 export default function App() {
@@ -91,18 +55,17 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
-    if (!isConfigured()) { setLoading(false); return; }
     (async () => {
-      const c = await loadConfig();
-      const i = await loadItems();
+      let c = await loadConfig();
+      let i = await loadItems();
+      if (!c) { await saveConfig(initialConfig); c = initialConfig; }
+      if (!i || i.length === 0) { await saveItems(initialItems); i = initialItems; }
       setConfig(c); setItems(i); setLoading(false);
     })();
   }, []);
 
   const refreshItems = async () => setItems(await loadItems());
   const refreshConfig = async () => setConfig(await loadConfig());
-
-  if (!isConfigured()) return <PendingSetupBanner />;
 
   if (loading) {
     return (
@@ -413,8 +376,10 @@ function ItemCard({ item, currency, onClick }) {
         <h3 className="serif text-lg leading-tight mb-1">{item.name}</h3>
         <p className="text-stone-500 text-xs line-clamp-1">{item.description}</p>
         <div className="mt-2 flex items-baseline gap-1">
-          <span className="serif text-xl font-semibold text-orange-800">{item.price}</span>
-          <span className="text-stone-500 text-sm">{currency}</span>
+          {item.price === 0
+            ? <span className="serif text-xl font-semibold text-orange-800">A convenir</span>
+            : <><span className="serif text-xl font-semibold text-orange-800">{item.price}</span><span className="text-stone-500 text-sm">{currency}</span></>
+          }
         </div>
       </div>
     </button>
@@ -431,8 +396,9 @@ function ItemDetailModal({ item, config, onClose }) {
   const hasPhotos = photos.length > 0;
   const multiplePhotos = photos.length > 1;
 
+  const priceLabel = item.price === 0 ? 'precio a convenir' : `${item.price}${config.currency}`;
   const waMsg = encodeURIComponent(
-    `¡Hola! Te escribo por el artículo "${item.name}" (${item.price}${config.currency}) de tu venta garage. ¿Sigue disponible?`
+    `¡Hola! Te escribo por el artículo "${item.name}" (${priceLabel}) de tu venta garage. ¿Sigue disponible?`
   );
   const waLink = `https://wa.me/${config.whatsapp.replace(/\D/g, '')}?text=${waMsg}`;
 
@@ -509,8 +475,10 @@ function ItemDetailModal({ item, config, onClose }) {
           <h2 className="serif text-3xl md:text-4xl mt-2 mb-3">{item.name}</h2>
           <p className="text-stone-700 leading-relaxed mb-6 whitespace-pre-wrap">{item.description || 'Sin descripción.'}</p>
           <div className="flex items-baseline gap-2 mb-6">
-            <span className="serif text-5xl font-semibold text-orange-800">{item.price}</span>
-            <span className="serif text-2xl text-stone-600">{config.currency}</span>
+            {item.price === 0
+              ? <span className="serif text-5xl font-semibold text-orange-800">A convenir</span>
+              : <><span className="serif text-5xl font-semibold text-orange-800">{item.price}</span><span className="serif text-2xl text-stone-600">{config.currency}</span></>
+            }
           </div>
 
           {!item.sold ? (
@@ -527,7 +495,7 @@ function ItemDetailModal({ item, config, onClose }) {
                 <p className="text-stone-600 text-sm mb-4">Acuerda primero la compra por WhatsApp. Después envía el pago con estos datos:</p>
                 <div className="space-y-2.5">
                   <BizumRow label="Número de teléfono" value={config.bizum} onCopy={() => copy(config.bizum, 'phone')} copied={copied === 'phone'} />
-                  <BizumRow label="Importe" value={`${item.price} ${config.currency}`} onCopy={() => copy(String(item.price), 'amount')} copied={copied === 'amount'} />
+                  {item.price > 0 && <BizumRow label="Importe" value={`${item.price} ${config.currency}`} onCopy={() => copy(String(item.price), 'amount')} copied={copied === 'amount'} />}
                   <BizumRow label="Concepto sugerido" value={item.name} onCopy={() => copy(item.name, 'concept')} copied={copied === 'concept'} />
                 </div>
                 <p className="text-xs text-stone-500 mt-4">ⓘ Bizum se envía desde la app de tu banco, no desde esta web. Tras el pago, avísanos por WhatsApp.</p>
@@ -709,7 +677,7 @@ function ItemsList({ items, config, onChange, onEdit }) {
                 <h4 className="serif text-lg truncate">{item.name}</h4>
                 {item.sold && <span className="text-[10px] uppercase tracking-wider bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Vendido</span>}
               </div>
-              <p className="text-xs text-stone-500 truncate">{item.category} · {item.price}{config.currency}</p>
+              <p className="text-xs text-stone-500 truncate">{item.category} · {item.price === 0 ? 'A convenir' : `${item.price}${config.currency}`}</p>
             </div>
             <div className="flex gap-1 shrink-0">
               <button onClick={() => toggleSold(item.id)}
